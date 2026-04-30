@@ -1,6 +1,5 @@
-python-telegram-bot
-google-generativeai
-google-api-python-client
-requests
+openai
 flask
 flask-cors
+requests
+google-api-python-client
