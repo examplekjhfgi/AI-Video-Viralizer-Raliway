@@ -3,18 +3,21 @@ import requests
 import re
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from openai import OpenAI
+import google.generativeai as genai
 from googleapiclient.discovery import build
 
 app = Flask(__name__)
 CORS(app)
 
-# --- API Keys ---
-OPENAI_API_KEY = "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"
+# --- API Keys Configuration ---
+# Gemini 1.5 Flash ব্যবহার করা হয়েছে যা 404 এরর দেবে না
+GEMINI_API_KEY = "AIzaSyBPSzfjOouZP_nKWP65nr28hTBU329CWPs"
 YT_API_KEY = "AIzaSyCa0dwxymgiP-KIRD1VJ99GGMMHqGQDycc"
 SHOTSTACK_KEY = "C6CEKeobSqtR1wmGTJmhMYzdoJx2gqPhyUegts7m"
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+genai.configure(api_key=GEMINI_API_KEY)
+# মডেলের নাম আপডেট করা হয়েছে
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 def get_video_id(url):
     pattern = r'(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})'
@@ -46,21 +49,26 @@ def process():
 
     if task == 'seo':
         try:
-            # ChatGPT (GPT-3.5-Turbo) ব্যবহার করে এসইও রিসার্চ
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "You are a professional YouTube SEO Expert."},
-                    {"role": "user", "content": f"Analyze this video and provide 5 viral titles, 20 tags, a long viral description, and 10 keywords. Title: {details['title']} Description: {details['description']}"}
-                ]
-            )
-            seo_data = response.choices[0].message.content
-            return jsonify({"type": "seo", "data": seo_data})
+            # এআই দিয়ে ভিডিও বিশ্লেষণ
+            prompt = f"""
+            You are a YouTube SEO and Viral Growth Expert. 
+            Analyze this video data:
+            Title: {details['title']}
+            Description: {details['description']}
+            
+            Provide the following in a structured format:
+            1. 5 Viral Catchy Titles.
+            2. Best 3 Viral Timestamps for Shorts (e.g., 00:45 - 01:15).
+            3. 20 High-ranking SEO Tags.
+            4. A Short Viral Description for Social Media.
+            """
+            response = model.generate_content(prompt)
+            return jsonify({"type": "seo", "data": response.text})
         except Exception as e:
-            print(f"OpenAI Error: {e}")
-            return jsonify({"error": "ChatGPT processing failed"}), 500
+            return jsonify({"error": str(e)}), 500
 
     elif task == 'shorts':
+        # Shotstack রেন্ডারিং লজিক (ক্লিন ইউআরএল সহ)
         shotstack_url = "https://api.shotstack.io/v1/render"
         headers = {"x-api-key": SHOTSTACK_KEY, "Content-Type": "application/json"}
         clean_url = f"https://www.youtube.com/watch?v={video_id}"
