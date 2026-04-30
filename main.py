@@ -9,8 +9,8 @@ from googleapiclient.discovery import build
 app = Flask(__name__)
 CORS(app)
 
-# API Keys
-GEMINI_API_KEY = "AIzaSyAJOTVeo3e9lI0k1fNpOe8_3lAA1pBFp34"
+# --- API Keys Configuration ---
+GEMINI_API_KEY = "AIzaSyBPSzfjOouZP_nKWP65nr28hTBU329CWPs"
 YT_API_KEY = "AIzaSyCa0dwxymgiP-KIRD1VJ99GGMMHqGQDycc"
 SHOTSTACK_KEY = "C6CEKeobSqtR1wmGTJmhMYzdoJx2gqPhyUegts7m"
 
@@ -18,7 +18,6 @@ genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-pro')
 
 def get_video_id(url):
-    """লিঙ্ক থেকে সঠিক ভিডিও আইডি বের করার উন্নত ফাংশন"""
     reg_exp = r'^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*'
     match = re.search(reg_exp, url)
     return match.group(7) if match and len(match.group(7)) == 11 else None
@@ -30,7 +29,7 @@ def get_video_details(video_id):
         response = request.execute()
         return response['items'][0]['snippet'] if response['items'] else None
     except Exception as e:
-        print(f"YouTube API Error: {e}")
+        print(f"YouTube Error: {e}")
         return None
 
 @app.route('/process', methods=['GET'])
@@ -43,16 +42,19 @@ def process():
 
     video_id = get_video_id(video_url)
     if not video_id:
-        return jsonify({"error": "Invalid YouTube URL format"}), 400
+        return jsonify({"error": "Invalid YouTube URL"}), 400
 
     details = get_video_details(video_id)
     if not details:
-        return jsonify({"error": f"Video with ID {video_id} not found"}), 404
+        return jsonify({"error": "Video details not found"}), 404
 
     if task == 'seo':
-        prompt = f"Analyze this YouTube video: Title: {details['title']}, Desc: {details['description']}. Provide 5 viral titles, 20 high-ranking tags, a viral description, and 10 SEO keywords."
-        response = model.generate_content(prompt)
-        return jsonify({"type": "seo", "data": response.text})
+        try:
+            prompt = f"Analyze this YouTube video: Title: {details['title']}, Desc: {details['description']}. Provide 5 viral titles, 20 high-ranking tags, a professional SEO description, and 10 viral keywords."
+            response = model.generate_content(prompt)
+            return jsonify({"type": "seo", "data": response.text})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
     elif task == 'shorts':
         shotstack_url = "https://api.shotstack.io/v1/render"
@@ -64,7 +66,26 @@ def process():
         res = requests.post(shotstack_url, json=payload, headers=headers)
         return jsonify({"type": "shorts", "data": res.json()})
 
+@app.route('/status', methods=['GET'])
+def get_status():
+    render_id = request.args.get('id')
+    shotstack_url = f"https://api.shotstack.io/v1/render/{render_id}"
+    headers = {"x-api-key": SHOTSTACK_KEY}
+    
+    try:
+        res = requests.get(shotstack_url, headers=headers).json()
+        status = res.get('response', {}).get('status')
+        video_url = res.get('response', {}).get('url')
+        
+        if status == 'done':
+            return jsonify({"status": "done", "url": video_url})
+        elif status == 'failed':
+            return jsonify({"status": "failed"})
+        else:
+            return jsonify({"status": "processing"})
+    except:
+        return jsonify({"status": "error"})
+
 if __name__ == '__main__':
-    # Railway-এর জন্য পোর্ট সেটআপ
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
