@@ -1,5 +1,4 @@
 import os
-import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from google import genai
@@ -8,14 +7,11 @@ from google.genai import types
 app = Flask(__name__)
 CORS(app)
 
-# সিকিউরিটি টিপস: সরাসরি কী না লিখে এনভায়রনমেন্ট ভ্যারিয়েবল ব্যবহার করুন
-# রেলওয়েতে ভ্যারিয়েবল সেট করলে এটি অটোমেটিক কাজ করবে
-API_KEY = os.environ.get("GEMINI_KEY", "AIzaSyC0qxCRHpTzLPkl4jB6qlv6vd1lmnfWVZA")
+# এখানে আপনার একদম নতুন এপিআই কী-টি দিন
+API_KEY = "AIzaSyC0qxCRHpTzLPkl4jB6qlv6vd1lmnfWVZA"
 
-client = genai.Client(
-    api_key=API_KEY,
-    http_options={'api_version': 'v1'} # এরর এড়াতে ভv1 ফোর্স করা হয়েছে
-)
+# ক্লায়েন্ট কনফিগারেশন - আমরা সরাসরি মডেল স্ট্রিং ব্যবহার করব
+client = genai.Client(api_key=API_KEY)
 
 @app.route('/audit', methods=['POST'])
 def audit_design():
@@ -29,17 +25,17 @@ def audit_design():
         image_data = img_file.read()
         
         prompt = f"""
-        Act as a Senior UI/UX Expert. Analyze this design thumbnail. 
-        User Context: {description}
-        1. Identify specific design errors (Typography, Spacing, Hierarchy, Color).
-        2. Give step-by-step solutions to fix them.
-        3. Provide a 'Perfection Score' out of 100.
-        4. If score is 100, say 'Ready to Upload'.
+        Act as a Senior UI/UX Expert. Analyze this design. 
+        Context: {description}
+        1. Identify specific issues.
+        2. Provide actionable fixes.
+        3. Give a 'Perfection Score' out of 100.
         """
         
-        # মডেল নেম আপডেট করা হয়েছে
+        # মডেলের নাম 'models/gemini-1.5-flash' এর বদলে শুধু 'gemini-1.5-flash' ব্যবহার করুন
+        # যদি flash কাজ না করে, তবে 'gemini-1.5-pro' ট্রাই করতে পারেন
         response = client.models.generate_content(
-            model="gemini-1.5-flash",
+            model="gemini-1.5-flash", 
             contents=[
                 prompt,
                 types.Part.from_bytes(data=image_data, mime_type="image/jpeg")
@@ -49,8 +45,10 @@ def audit_design():
         return jsonify({"result": response.text})
             
     except Exception as e:
-        print(f"Final Debug Error: {str(e)}")
-        return jsonify({"error": "Server is busy. Try again with a new API key."}), 500
+        # এরর মেসেজটি পরিষ্কারভাবে দেখার জন্য
+        error_msg = str(e)
+        print(f"Final Debug Error: {error_msg}")
+        return jsonify({"error": error_msg}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
