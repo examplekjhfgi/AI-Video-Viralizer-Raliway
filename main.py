@@ -1,14 +1,27 @@
 import os
-import google.generativeai as genai
+import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)
 
-# এপিআই কী সেটআপ
-API_KEY = "AIzaSyC0qxCRHpTzLPkl4jB6qlv6vd1lmnfWVZA"
-genai.configure(api_key=API_KEY)
+# এখানে আপনার Hugging Face Access Token টি দিন
+HF_TOKEN = "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"
+# আমরা Moondream বা Llava মডেল ব্যবহার করব যা ছবি বুঝতে পারে
+API_URL = "https://api-inference.huggingface.co/models/vikhyatk/moondream2"
+headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+
+def query(image_data, prompt):
+    # Hugging Face এ ইমেজ এবং প্রম্পট পাঠানোর ফরম্যাট
+    payload = {
+        "inputs": {
+            "image": image_data,
+            "question": prompt
+        }
+    }
+    response = requests.post(API_URL, headers=headers, json=payload)
+    return response.json()
 
 @app.route('/audit', methods=['POST'])
 def audit_design():
@@ -16,31 +29,24 @@ def audit_design():
         return jsonify({"error": "No image found"}), 400
     
     img_file = request.files['image']
-    description = request.form.get('description', 'UI/UX Audit')
+    description = request.form.get('description', 'UI/UX Design')
     
     try:
-        # লেটেস্ট মডেল ১.৫ ফ্ল্যাশ ব্যবহার করছি যা দ্রুত এবং নির্ভুল
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        import base64
+        image_base64 = base64.b64encode(img_file.read()).decode("utf-8")
         
-        # ইমেজ প্রসেস করা
-        image_data = img_file.read()
-        contents = [
-            description,
-            {"mime_type": "image/jpeg", "data": image_data}
-        ]
+        # প্রম্পটটি Hugging Face মডেলের জন্য ছোট এবং সহজ রাখা ভালো
+        prompt = f"Act as a UI/UX expert. Audit this {description}. List 3 main design issues and give a score out of 100."
         
-        # জেনারেশন শুরু
-        response = model.generate_content(contents)
+        output = query(image_base64, prompt)
         
-        if response.text:
-            return jsonify({"result": response.text})
-        else:
-            return jsonify({"error": "AI could not generate feedback"}), 500
+        # Hugging Face মডেল সাধারণত সরাসরি টেক্সট দেয়
+        result_text = output.get("answer", "AI could not analyze the image.")
+        
+        return jsonify({"result": result_text})
             
     except Exception as e:
-        # লগ-এ পরিষ্কার মেসেজ দেখাবে
-        print(f"Railway Error Logic: {str(e)}")
-        return jsonify({"error": "AI Error. Please check API key permissions."}), 500
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
