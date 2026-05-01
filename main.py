@@ -6,7 +6,7 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# এখানে আপনার এপিআই কী-টি সরাসরি দিন
+# এপিআই কী সেটআপ
 API_KEY = "AIzaSyC0qxCRHpTzLPkl4jB6qlv6vd1lmnfWVZA"
 genai.configure(api_key=API_KEY)
 
@@ -16,40 +16,32 @@ def audit_design():
         return jsonify({"error": "No image found"}), 400
     
     img_file = request.files['image']
-    description = request.form.get('description', 'Professional UI/UX Audit')
+    description = request.form.get('description', 'UI/UX Audit')
     
     try:
-        # পুরনো এবং স্ট্যাবল মডেল যা সহজে ক্র্যাশ করে না
-        model = genai.GenerativeModel('gemini-pro-vision')
+        # লেটেস্ট মডেল ১.৫ ফ্ল্যাশ ব্যবহার করছি যা দ্রুত এবং নির্ভুল
+        model = genai.GenerativeModel('gemini-1.5-flash')
         
-        # ইমেজ ডেটা ফরম্যাট করা
-        image_parts = [
-            {
-                "mime_type": "image/jpeg",
-                "data": img_file.read()
-            }
+        # ইমেজ প্রসেস করা
+        image_data = img_file.read()
+        contents = [
+            description,
+            {"mime_type": "image/jpeg", "data": image_data}
         ]
         
-        prompt = f"""
-        Act as a Senior UI/UX Expert. Analyze this design.
-        Context: {description}
-        1. List design issues (Spacing, Hierarchy, Colors).
-        2. Give step-by-step solutions.
-        3. Score it out of 100.
-        """
-        
-        response = model.generate_content([prompt, image_parts[0]])
+        # জেনারেশন শুরু
+        response = model.generate_content(contents)
         
         if response.text:
             return jsonify({"result": response.text})
         else:
-            return jsonify({"error": "AI could not read the image"}), 500
+            return jsonify({"error": "AI could not generate feedback"}), 500
             
     except Exception as e:
-        print(f"Railway Crash Logic: {str(e)}")
-        return jsonify({"error": "Server is busy, try again!"}), 500
+        # লগ-এ পরিষ্কার মেসেজ দেখাবে
+        print(f"Railway Error Logic: {str(e)}")
+        return jsonify({"error": "AI Error. Please check API key permissions."}), 500
 
 if __name__ == '__main__':
-    # রেলওয়ের জন্য পোর্ট সেটআপ
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
