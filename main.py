@@ -1,48 +1,58 @@
 import os
-import requests
+import google.generativeai as genai
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)
 
-# রেলওয়ে ভেরিয়েবলে গিয়ে শুধু HF_TOKEN টি সেট করুন
-HF_TOKEN = os.environ.get("HF_TOKEN")
-# এই মডেলটি কার্ড ছাড়াই ইমেজ রিড করতে পারে
-API_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-large"
-headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+# রেলওয়ে ভেরিয়েবল থেকে কী নেওয়া
+API_KEY = os.environ.get("GEMINI_API_KEY")
 
 @app.route('/audit', methods=['POST'])
 def audit_design():
-    if not HF_TOKEN:
-        return jsonify({"error": "Railway setting check koro (HF_TOKEN missing)"}), 500
+    if not API_KEY:
+        print("CRITICAL: GEMINI_API_KEY is missing in Railway Variables!")
+        return jsonify({"error": "API Key set করা হয়নি।"}), 500
 
     if 'image' not in request.files:
-        return jsonify({"error": "No image found"}), 400
+        return jsonify({"error": "No image uploaded"}), 400
+    
+    img_file = request.files['image']
+    description = request.form.get('description', 'UI/UX Design')
     
     try:
-        img_file = request.files['image']
-        image_data = img_file.read()
+        # এপিআই কনফিগার করা
+        genai.configure(api_key=API_KEY)
+        model = genai.GenerativeModel('gemini-1.5-flash')
         
-        # সরাসরি ইমেজ বাইনারি পাঠানো হচ্ছে (সবচেয়ে সেফ পদ্ধতি)
-        response = requests.post(API_URL, headers=headers, data=image_data, timeout=30)
-        output = response.json()
+        image_bytes = img_file.read()
         
-        # যদি মডেল প্রথমবার লোড হতে সময় নেয়
-        if isinstance(output, dict) and "error" in output:
-            return jsonify({"error": "AI is warming up. Please try again in 10 seconds."}), 503
+        # প্রম্পট এবং ইমেজ ফরম্যাট
+        contents = [
+            f"Act as a Senior UI/UX Expert. Audit this {description} design. List 3 specific issues and give a score out of 100.",
+            {'mime_type': 'image/jpeg', 'data': image_bytes}
+        ]
+        
+        # জেনারেশন শুরু
+        response = model.generate_content(contents)
+        
+        if response.text:
+            return jsonify({"result": response.text})
+        else:
+            return jsonify({"error": "AI could not generate feedback."}), 500
             
-        if isinstance(output, list) and len(output) > 0:
-            ai_text = output[0].get('generated_text', 'Analysis complete.')
-            # ইউজারের জন্য ফিডব্যাক সুন্দর করা
-            final_result = f"Design Audit: {ai_text.capitalize()}. (Based on UI structure and accessibility)."
-            return jsonify({"result": final_result})
-        
-        return jsonify({"error": "AI response error, try again."}), 500
-
     except Exception as e:
-        print(f"CRASH LOG: {str(e)}")
-        return jsonify({"error": "Connection slow. Use a small JPG."}), 500
+        # এটি আপনাকে লগে আসল এরর মেসেজটি দেখাবে
+        error_msg = str(e)
+        print(f"GEMINI ERROR LOG: {error_msg}")
+        
+        if "API_KEY_INVALID" in error_msg:
+            return jsonify({"error": "আপনার এপিআই কী-টি ভুল বা ইনভ্যালিড।"}), 500
+        elif "safety" in error_msg.lower():
+            return jsonify({"error": "AI এই ছবিটিকে নিরাপদ মনে করছে না।"}), 500
+        else:
+            return jsonify({"error": f"Internal Error: {error_msg[:50]}..."}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
