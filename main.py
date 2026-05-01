@@ -7,33 +7,43 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# রেলওয়ে ভেরিয়েবলে HF_TOKEN সেট করুন
+# Railway Variables থেকে টোকেন নেওয়া
 HF_TOKEN = os.environ.get("HF_TOKEN")
-# OpenAI এর Shap-E মডেল (টেক্সট থেকে ৩ডি)
 API_URL = "https://api-inference.huggingface.co/models/openai/shap-e"
 headers = {"Authorization": f"Bearer {HF_TOKEN}"}
 
 @app.route('/generate-3d', methods=['POST'])
 def generate_3d():
-    data = request.json
-    prompt = data.get("prompt", "A simple 3D chair")
+    if not HF_TOKEN:
+        return jsonify({"error": "Railway Variables-এ HF_TOKEN পাওয়া যায়নি!"}), 500
 
     try:
-        response = requests.post(API_URL, headers=headers, json={"inputs": prompt}, timeout=120)
+        data = request.get_json()
+        prompt = data.get("prompt", "A futuristic 3D icon")
         
+        print(f"Requesting: {prompt}") # Railway লগে দেখা যাবে
+
+        # Hugging Face এপিআই কল
+        response = requests.post(API_URL, headers=headers, json={"inputs": prompt}, timeout=180)
+        
+        # মডেল লোড হতে থাকলে
+        if response.status_code == 503:
+            return jsonify({"error": "AI Model is loading. Please wait 1 minute and try again."}), 503
+            
         if response.status_code == 200:
-            # হাগিং ফেস সাধারণত জিপ ফাইল বা ডট-জিএলবি ফাইল দেয়
             return send_file(
                 io.BytesIO(response.content),
                 mimetype='application/octet-stream',
                 as_attachment=True,
-                download_name='model_3d.glb'
+                download_name='brutal_x_3d_model.glb'
             )
         else:
-            return jsonify({"error": "HF API error", "details": response.text}), response.status_code
+            print(f"HF Error: {response.status_code} - {response.text}")
+            return jsonify({"error": f"HF API Error: {response.status_code}"}), response.status_code
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"Crash Log: {str(e)}")
+        return jsonify({"error": "Server error, check Railway logs."}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
