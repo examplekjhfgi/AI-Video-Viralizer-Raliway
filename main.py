@@ -1,56 +1,59 @@
 import os
 import requests
 import base64
+import io
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from PIL import Image
 
 app = Flask(__name__)
 CORS(app)
 
-# রেলওয়ে ভ্যারিয়েবল থেকে টোকেন সংগ্রহ
 HF_TOKEN = os.environ.get("HF_TOKEN")
-
-# Moondream মডেল ইউআরএল
 API_URL = "https://api-inference.huggingface.co/models/vikhyatk/moondream2"
 headers = {"Authorization": f"Bearer {HF_TOKEN}"}
 
 @app.route('/audit', methods=['POST'])
 def audit_design():
-    # ডিবাগ: টোকেন ঠিকমতো পেয়েছে কি না চেক (সুরক্ষার জন্য প্রথম ৩টি অক্ষর দেখাবে)
     if not HF_TOKEN:
-        print("DEBUG ERROR: HF_TOKEN is missing in Railway Variables!")
-        return jsonify({"error": "Server setup incomplete (Missing Token)"}), 500
-    else:
-        print(f"DEBUG: Token found. Starts with: {HF_TOKEN[:3]}")
+        return jsonify({"error": "Missing HF_TOKEN"}), 500
 
     if 'image' not in request.files:
         return jsonify({"error": "No image uploaded"}), 400
     
     img_file = request.files['image']
-    description = request.form.get('description', 'UI/UX Design Audit')
+    description = request.form.get('description', 'UI/UX Design')
     
     try:
-        # ইমেজ প্রসেসিং
-        image_bytes = img_file.read()
-        image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+        # --- ইমেজ রিসাইজিং পার্ট (যাতে 'entity too large' এরর না আসে) ---
+        img = Image.open(img_file)
+        # যদি ইমেজটি ১০০০ পিক্সেলের বেশি চওড়া হয়, তবে ছোট করা হবে
+        if img.width > 1000:
+            ratio = 1000 / float(img.width)
+            height = int((float(img.height) * float(ratio)))
+            img = img.resize((1000, height), Image.LANCZOS)
         
+        # ছবিকে কম্প্রেস করে বাইনারিতে রূপান্তর
+        byte_arr = io.BytesIO()
+        img = img.convert("RGB") # PNG থাকলেও JPG ফরম্যাটে কনভার্ট হবে
+        img.save(byte_arr, format='JPEG', quality=70) # ৭০% কোয়ালিটি যাতে সাইজ ছোট হয়
+        image_bytes = byte_arr.getvalue()
+        # ---------------------------------------------------------
+
         payload = {
             "inputs": {
-                "image": image_base64,
-                "question": f"Analyze this {description}. List 3 specific UI/UX issues and give a score out of 100."
+                "image": base64.b64encode(image_bytes).decode("utf-8"),
+                "question": f"Analyze this UI/UX design: {description}. List 3 issues and a score out of 100."
             }
         }
         
-        print("DEBUG: Sending request to Hugging Face...")
         response = requests.post(API_URL, headers=headers, json=payload)
         output = response.json()
-        print(f"DEBUG HF Response: {output}") # হাগিং ফেস কী বলছে তা লগে দেখাবে
         
         if isinstance(output, dict) and "error" in output:
             return jsonify({"error": output["error"]}), 500
             
-        result_text = output.get("answer", "AI could not generate a response.")
-        return jsonify({"result": result_text})
+        return jsonify({"result": output.get("answer", "No response from AI.")})
             
     except Exception as e:
         print(f"DEBUG CRASH: {str(e)}")
