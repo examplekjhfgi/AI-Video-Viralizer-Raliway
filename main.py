@@ -2,19 +2,15 @@ import os
 import base64
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 app = Flask(__name__)
 CORS(app)
 
-# এপিআই সেটআপ
+# এপিআই কী সেটআপ
 GEMINI_KEY = "AIzaSyBgV_tGDEK-uQOFop8zdYCxMSEw9KJAzFg"
-genai.configure(api_key=GEMINI_KEY)
-# Gemini 1.5 Flash ব্যবহার করা হয়েছে যা ছবি বুঝতে পারদর্শী
-model = genai.GenerativeModel('gemini-1.5-flash')
-
-def encode_image(image_file):
-    return base64.b64encode(image_file.read()).decode('utf-8')
+client = genai.Client(api_key=GEMINI_KEY)
 
 @app.route('/audit', methods=['POST'])
 def audit_design():
@@ -23,6 +19,9 @@ def audit_design():
     
     img_file = request.files['image']
     description = request.form.get('description', '')
+    
+    # ইমেজ কনভার্ট করা
+    image_bytes = img_file.read()
     
     prompt = f"""
     Act as a Senior UI/UX Expert. Analyze this design. 
@@ -34,13 +33,17 @@ def audit_design():
     Tone: Professional and constructive.
     """
     
-    img_data = encode_image(img_file)
-    response = model.generate_content([
-        prompt,
-        {'mime_type': 'image/jpeg', 'data': img_data}
-    ])
-    
-    return jsonify({"result": response.text})
+    try:
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=[
+                prompt,
+                types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
+            ]
+        )
+        return jsonify({"result": response.text})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/seo', methods=['POST'])
 def generate_seo():
@@ -48,15 +51,13 @@ def generate_seo():
     title = data.get('title', 'UI/UX Design')
     platforms = data.get('platforms', [])
     
-    prompt = f"""
-    Create a viral SEO package for a design titled '{title}'.
-    Target Platforms: {', '.join(platforms)}.
-    Provide:
-    - Image Metadata: Title, Subject, Tags (semicolon separated), and Comments.
-    - Captions: Platform-specific hooks and hashtags for Dribbble, Behance, and LinkedIn.
-    """
-    response = model.generate_content(prompt)
-    return jsonify({"seo": response.text})
+    prompt = f"Create a viral SEO package for a design titled '{title}' for platforms: {', '.join(platforms)}."
+    
+    try:
+        response = client.models.generate_content(model="gemini-1.5-flash", contents=prompt)
+        return jsonify({"seo": response.text})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
