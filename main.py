@@ -1,54 +1,36 @@
 import os
+import google.generativeai as genai
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from google import genai
-from google.genai import types
 
 app = Flask(__name__)
 CORS(app)
 
-# এখানে আপনার একদম নতুন এপিআই কী-টি দিন
-API_KEY = "AIzaSyC0qxCRHpTzLPkl4jB6qlv6vd1lmnfWVZA"
-
-# ক্লায়েন্ট কনফিগারেশন - আমরা সরাসরি মডেল স্ট্রিং ব্যবহার করব
-client = genai.Client(api_key=API_KEY)
+# একদম নতুন একটি কী এখানে বসান
+GEMINI_KEY = "AIzaSyC0qxCRHpTzLPkl4jB6qlv6vd1lmnfWVZA"
+genai.configure(api_key=GEMINI_KEY)
 
 @app.route('/audit', methods=['POST'])
-def audit_design():
+def audit():
     if 'image' not in request.files:
-        return jsonify({"error": "No image found"}), 400
+        return jsonify({"error": "No image"}), 400
     
-    img_file = request.files['image']
-    description = request.form.get('description', 'UI/UX Design Audit')
-    
+    img = request.files['image']
+    desc = request.form.get('description', '')
+
     try:
-        image_data = img_file.read()
+        # মডেলের নাম 'gemini-1.5-flash' এর বদলে শুধু 'gemini-pro-vision' ট্রাই করুন
+        # অনেক পুরনো অ্যাকাউন্টে ১.৫ মডেল ডিফল্টভাবে থাকে না
+        model = genai.GenerativeModel('gemini-pro-vision')
         
-        prompt = f"""
-        Act as a Senior UI/UX Expert. Analyze this design. 
-        Context: {description}
-        1. Identify specific issues.
-        2. Provide actionable fixes.
-        3. Give a 'Perfection Score' out of 100.
-        """
+        # ইমেজ প্রসেসিং
+        img_data = [{'mime_type': 'image/jpeg', 'data': img.read()}]
+        prompt = f"Expert UI/UX Audit for: {desc}. List issues and give a score out of 100."
         
-        # মডেলের নাম 'models/gemini-1.5-flash' এর বদলে শুধু 'gemini-1.5-flash' ব্যবহার করুন
-        # যদি flash কাজ না করে, তবে 'gemini-1.5-pro' ট্রাই করতে পারেন
-        response = client.models.generate_content(
-            model="gemini-1.5-flash", 
-            contents=[
-                prompt,
-                types.Part.from_bytes(data=image_data, mime_type="image/jpeg")
-            ]
-        )
-        
+        response = model.generate_content([prompt, img_data[0]])
         return jsonify({"result": response.text})
-            
     except Exception as e:
-        # এরর মেসেজটি পরিষ্কারভাবে দেখার জন্য
-        error_msg = str(e)
-        print(f"Final Debug Error: {error_msg}")
-        return jsonify({"error": error_msg}), 500
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
