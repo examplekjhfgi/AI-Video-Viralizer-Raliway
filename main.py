@@ -1,49 +1,54 @@
 import os
-import requests
-import io
 from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS
+from huggingface_hub import InferenceClient
+import io
 
 app = Flask(__name__)
 CORS(app)
 
 # Railway Variables থেকে টোকেন নেওয়া
 HF_TOKEN = os.environ.get("HF_TOKEN")
-API_URL = "https://api-inference.huggingface.co/models/openai/shap-e"
-headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+
+# ক্লায়েন্ট সেটআপ
+client = InferenceClient(token=HF_TOKEN)
 
 @app.route('/generate-3d', methods=['POST'])
 def generate_3d():
     if not HF_TOKEN:
-        return jsonify({"error": "Railway Variables-এ HF_TOKEN পাওয়া যায়নি!"}), 500
+        return jsonify({"error": "HF_TOKEN missing in Railway"}), 500
 
     try:
         data = request.get_json()
-        prompt = data.get("prompt", "A futuristic 3D icon")
+        prompt = data.get("prompt", "A simple 3D cube")
         
-        print(f"Requesting: {prompt}") # Railway লগে দেখা যাবে
+        print(f"Generating 3D for: {prompt}")
 
-        # Hugging Face এপিআই কল
-        response = requests.post(API_URL, headers=headers, json={"inputs": prompt}, timeout=180)
+        # নতুন মেথডে মডেল কল (Shap-E)
+        # এখানে সরাসরি মডেল আইডি ব্যবহার করা হচ্ছে
+        image_data = client.post(
+            json={"inputs": prompt},
+            model="openai/shap-e",
+        )
         
-        # মডেল লোড হতে থাকলে
-        if response.status_code == 503:
-            return jsonify({"error": "AI Model is loading. Please wait 1 minute and try again."}), 503
-            
-        if response.status_code == 200:
+        if image_data:
             return send_file(
-                io.BytesIO(response.content),
+                io.BytesIO(image_data),
                 mimetype='application/octet-stream',
                 as_attachment=True,
-                download_name='brutal_x_3d_model.glb'
+                download_name='model_3d.glb'
             )
         else:
-            print(f"HF Error: {response.status_code} - {response.text}")
-            return jsonify({"error": f"HF API Error: {response.status_code}"}), response.status_code
+            return jsonify({"error": "No data received from HF"}), 500
 
     except Exception as e:
-        print(f"Crash Log: {str(e)}")
-        return jsonify({"error": "Server error, check Railway logs."}), 500
+        error_msg = str(e)
+        print(f"HF Error: {error_msg}")
+        
+        # যদি মডেলটি এখন এপিআই হিসেবে কাজ না করে তবে বিকল্প মেসেজ
+        if "404" in error_msg:
+            return jsonify({"error": "This specific model is currently unavailable as a free API."}), 404
+        return jsonify({"error": "Processing error, try again later."}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
