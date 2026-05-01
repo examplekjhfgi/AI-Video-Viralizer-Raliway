@@ -6,32 +6,50 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# একদম নতুন একটি কী এখানে বসান
-GEMINI_KEY = "AIzaSyC0qxCRHpTzLPkl4jB6qlv6vd1lmnfWVZA"
-genai.configure(api_key=GEMINI_KEY)
+# এখানে আপনার এপিআই কী-টি সরাসরি দিন
+API_KEY = "AIzaSyC0qxCRHpTzLPkl4jB6qlv6vd1lmnfWVZA"
+genai.configure(api_key=API_KEY)
 
 @app.route('/audit', methods=['POST'])
-def audit():
+def audit_design():
     if 'image' not in request.files:
-        return jsonify({"error": "No image"}), 400
+        return jsonify({"error": "No image found"}), 400
     
-    img = request.files['image']
-    desc = request.form.get('description', '')
-
+    img_file = request.files['image']
+    description = request.form.get('description', 'Professional UI/UX Audit')
+    
     try:
-        # মডেলের নাম 'gemini-1.5-flash' এর বদলে শুধু 'gemini-pro-vision' ট্রাই করুন
-        # অনেক পুরনো অ্যাকাউন্টে ১.৫ মডেল ডিফল্টভাবে থাকে না
+        # পুরনো এবং স্ট্যাবল মডেল যা সহজে ক্র্যাশ করে না
         model = genai.GenerativeModel('gemini-pro-vision')
         
-        # ইমেজ প্রসেসিং
-        img_data = [{'mime_type': 'image/jpeg', 'data': img.read()}]
-        prompt = f"Expert UI/UX Audit for: {desc}. List issues and give a score out of 100."
+        # ইমেজ ডেটা ফরম্যাট করা
+        image_parts = [
+            {
+                "mime_type": "image/jpeg",
+                "data": img_file.read()
+            }
+        ]
         
-        response = model.generate_content([prompt, img_data[0]])
-        return jsonify({"result": response.text})
+        prompt = f"""
+        Act as a Senior UI/UX Expert. Analyze this design.
+        Context: {description}
+        1. List design issues (Spacing, Hierarchy, Colors).
+        2. Give step-by-step solutions.
+        3. Score it out of 100.
+        """
+        
+        response = model.generate_content([prompt, image_parts[0]])
+        
+        if response.text:
+            return jsonify({"result": response.text})
+        else:
+            return jsonify({"error": "AI could not read the image"}), 500
+            
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"Railway Crash Logic: {str(e)}")
+        return jsonify({"error": "Server is busy, try again!"}), 500
 
 if __name__ == '__main__':
+    # রেলওয়ের জন্য পোর্ট সেটআপ
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
