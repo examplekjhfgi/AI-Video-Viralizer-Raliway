@@ -8,9 +8,14 @@ from google.genai import types
 app = Flask(__name__)
 CORS(app)
 
-# API Key
-GEMINI_KEY = "AIzaSyBgV_tGDEK-uQOFop8zdYCxMSEw9KJAzFg"
-client = genai.Client(api_key=GEMINI_KEY)
+# সিকিউরিটি টিপস: সরাসরি কী না লিখে এনভায়রনমেন্ট ভ্যারিয়েবল ব্যবহার করুন
+# রেলওয়েতে ভ্যারিয়েবল সেট করলে এটি অটোমেটিক কাজ করবে
+API_KEY = os.environ.get("GEMINI_KEY", "AIzaSyC0qxCRHpTzLPkl4jB6qlv6vd1lmnfWVZA")
+
+client = genai.Client(
+    api_key=API_KEY,
+    http_options={'api_version': 'v1'} # এরর এড়াতে ভv1 ফোর্স করা হয়েছে
+)
 
 @app.route('/audit', methods=['POST'])
 def audit_design():
@@ -18,10 +23,9 @@ def audit_design():
         return jsonify({"error": "No image found"}), 400
     
     img_file = request.files['image']
-    description = request.form.get('description', 'No description provided')
+    description = request.form.get('description', 'UI/UX Design Audit')
     
     try:
-        # ইমেজ ফাইলটি রিড করা
         image_data = img_file.read()
         
         prompt = f"""
@@ -31,10 +35,9 @@ def audit_design():
         2. Give step-by-step solutions to fix them.
         3. Provide a 'Perfection Score' out of 100.
         4. If score is 100, say 'Ready to Upload'.
-        Format: Professional bullet points.
         """
         
-        # জেমিনি এপিআই কল
+        # মডেল নেম আপডেট করা হয়েছে
         response = client.models.generate_content(
             model="gemini-1.5-flash",
             contents=[
@@ -43,27 +46,11 @@ def audit_design():
             ]
         )
         
-        if response and response.text:
-            return jsonify({"result": response.text})
-        else:
-            return jsonify({"error": "AI could not generate a response"}), 500
+        return jsonify({"result": response.text})
             
     except Exception as e:
-        print(f"Server Error: {str(e)}") # এটি রেলওয়ে লগে এররটি দেখাবে
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/seo', methods=['POST'])
-def generate_seo():
-    data = request.json
-    title = data.get('title', 'Design')
-    platforms = data.get('platforms', [])
-    
-    try:
-        prompt = f"Provide viral SEO titles, tags, and description for a UI/UX project titled '{title}' for {platforms}."
-        response = client.models.generate_content(model="gemini-1.5-flash", contents=prompt)
-        return jsonify({"seo": response.text})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"Final Debug Error: {str(e)}")
+        return jsonify({"error": "Server is busy. Try again with a new API key."}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
