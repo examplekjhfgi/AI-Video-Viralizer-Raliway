@@ -1,53 +1,39 @@
 import os
-import google.generativeai as genai
-from flask import Flask, request, jsonify
+import requests
+import io
+from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)
 
-# রেলওয়ে ভেরিয়েবল থেকে কী নেওয়া
-API_KEY = os.environ.get("GEMINI_API_KEY")
+# রেলওয়ে ভেরিয়েবলে HF_TOKEN সেট করুন
+HF_TOKEN = os.environ.get("HF_TOKEN")
+# OpenAI এর Shap-E মডেল (টেক্সট থেকে ৩ডি)
+API_URL = "https://api-inference.huggingface.co/models/openai/shap-e"
+headers = {"Authorization": f"Bearer {HF_TOKEN}"}
 
-@app.route('/audit', methods=['POST'])
-def audit_design():
-    if not API_KEY:
-        return jsonify({"error": "API Key missing in Railway!"}), 500
+@app.route('/generate-3d', methods=['POST'])
+def generate_3d():
+    data = request.json
+    prompt = data.get("prompt", "A simple 3D chair")
 
-    if 'image' not in request.files:
-        return jsonify({"error": "No image uploaded"}), 400
-    
-    img_file = request.files['image']
-    description = request.form.get('description', 'UI/UX Design')
-    
     try:
-        # এপিআই কনফিগার করা
-        genai.configure(api_key=API_KEY)
+        response = requests.post(API_URL, headers=headers, json={"inputs": prompt}, timeout=120)
         
-        # সবথেকে স্ট্যাবল ইমেজ মডেল (gemini-pro-vision)
-        model = genai.GenerativeModel('gemini-pro-vision')
-        
-        image_bytes = img_file.read()
-        
-        # প্রম্পট এবং ইমেজ
-        contents = [
-            f"As a Senior UI/UX Designer, analyze this {description}. Provide 3 critical issues and a design score out of 100.",
-            {'mime_type': 'image/jpeg', 'data': image_bytes}
-        ]
-        
-        # জেনারেশন শুরু
-        response = model.generate_content(contents)
-        
-        # জেমিনি প্রো-ভিশনে টেক্সট পাওয়ার সঠিক পদ্ধতি
-        if response and response.text:
-            return jsonify({"result": response.text})
+        if response.status_code == 200:
+            # হাগিং ফেস সাধারণত জিপ ফাইল বা ডট-জিএলবি ফাইল দেয়
+            return send_file(
+                io.BytesIO(response.content),
+                mimetype='application/octet-stream',
+                as_attachment=True,
+                download_name='model_3d.glb'
+            )
         else:
-            return jsonify({"error": "AI response was empty."}), 500
-            
+            return jsonify({"error": "HF API error", "details": response.text}), response.status_code
+
     except Exception as e:
-        error_msg = str(e)
-        print(f"GEMINI ERROR LOG: {error_msg}")
-        return jsonify({"error": "Service is temporarily busy. Please retry in 30 seconds."}), 500
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
