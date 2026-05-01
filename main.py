@@ -2,6 +2,7 @@ import os
 import requests
 import base64
 import io
+import time
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from PIL import Image
@@ -25,20 +26,14 @@ def audit_design():
     description = request.form.get('description', 'UI/UX Design')
     
     try:
-        # --- ইমেজ রিসাইজিং পার্ট (যাতে 'entity too large' এরর না আসে) ---
+        # ইমেজ রিসাইজিং এবং কমপ্রেশন (৫০০ কিলোবাইট এর আশেপাশে রাখা ভালো)
         img = Image.open(img_file)
-        # যদি ইমেজটি ১০০০ পিক্সেলের বেশি চওড়া হয়, তবে ছোট করা হবে
-        if img.width > 1000:
-            ratio = 1000 / float(img.width)
-            height = int((float(img.height) * float(ratio)))
-            img = img.resize((1000, height), Image.LANCZOS)
+        img.thumbnail((800, 800)) # আরও ছোট করা হলো দ্রুত রেসপন্স পাওয়ার জন্য
         
-        # ছবিকে কম্প্রেস করে বাইনারিতে রূপান্তর
         byte_arr = io.BytesIO()
-        img = img.convert("RGB") # PNG থাকলেও JPG ফরম্যাটে কনভার্ট হবে
-        img.save(byte_arr, format='JPEG', quality=70) # ৭০% কোয়ালিটি যাতে সাইজ ছোট হয়
+        img = img.convert("RGB")
+        img.save(byte_arr, format='JPEG', quality=60) 
         image_bytes = byte_arr.getvalue()
-        # ---------------------------------------------------------
 
         payload = {
             "inputs": {
@@ -47,17 +42,36 @@ def audit_design():
             }
         }
         
-        response = requests.post(API_URL, headers=headers, json=payload)
-        output = response.json()
-        
-        if isinstance(output, dict) and "error" in output:
-            return jsonify({"error": output["error"]}), 500
+        # এপিআই রিকোয়েস্ট (আমরা ২ বার ট্রাই করার অপশন রাখছি)
+        for i in range(2):
+            response = requests.post(API_URL, headers=headers, json=payload)
             
-        return jsonify({"result": output.get("answer", "No response from AI.")})
+            # যদি খালি রেসপন্স আসে (আপনার আগের এররটি এখানে হ্যান্ডেল হবে)
+            if not response.content:
+                print(f"Empty response, retrying... ({i+1}/2)")
+                time.sleep(2)
+                continue
+                
+            try:
+                output = response.json()
+            except:
+                print("Failed to parse JSON, retrying...")
+                time.sleep(2)
+                continue
+
+            if isinstance(output, dict) and "error" in output:
+                # মডেল লোড হতে থাকলে ২০ সেকেন্ড সময় নেয়
+                if "loading" in output["error"]:
+                    return jsonify({"error": "Model is starting up. Wait 20 seconds and try again."}), 503
+                return jsonify({"error": output["error"]}), 500
+                
+            return jsonify({"result": output.get("answer", "AI could not process this image.")})
+
+        return jsonify({"error": "Server is too busy or model is offline. Please try again in a minute."}), 504
             
     except Exception as e:
-        print(f"DEBUG CRASH: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        print(f"Final Debug Error: {str(e)}")
+        return jsonify({"error": "Something went wrong. Please try again."}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
